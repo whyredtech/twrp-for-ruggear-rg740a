@@ -1,0 +1,41 @@
+name: Build TWRP RG740A
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'TWRP branch (twrp-11, twrp-12.1, twrp-9.0)'
+        default: 'twrp-11'
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk
+        uses: jlumbroso/free-disk-space@main
+        with: {tool-cache: true, android: true, dotnet: true, haskell: true, large-packages: false, swap-storage: true}
+      - name: Deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev libc6-dev-i386 libncurses5 x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 python-is-python3 lz4 cpio
+          mkdir -p ~/bin && curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo && chmod +x ~/bin/repo
+          git config --global user.name ci && git config --global user.email ci@example.com
+      - name: Sync TWRP
+        run: |
+          mkdir ~/twrp && cd ~/twrp
+          ~/bin/repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b ${{ inputs.branch }} --depth=1
+          ~/bin/repo sync -c -j8 --force-sync --no-clone-bundle --no-tags
+      - name: Build
+        run: |
+          cp -r device ~/twrp/
+          cd ~/twrp && export ALLOW_MISSING_DEPENDENCIES=true LC_ALL=C
+          source build/envsetup.sh && lunch twrp_rg740a-eng && mka recoveryimage -j$(nproc)
+      - name: Repack with stock kernel and dt
+        run: |
+          python3 repack.py ~/twrp/out/target/product/rg740a/recovery.img twrp_rg740a.img
+          cp ~/twrp/out/target/product/rg740a/recovery.img built_raw.img
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twrp_rg740a
+          path: |
+            twrp_rg740a.img
+            built_raw.img
